@@ -57,6 +57,6 @@ pub async fn run() -> Result<()> {
         }
 
         // Wait before the next iteration to avoid overwhelming the server and to handle errors gracefully
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 }

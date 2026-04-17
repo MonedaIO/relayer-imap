@@ -25,7 +25,6 @@ pub struct ImapConfig {
     pub domain_name: String,
     pub port: u16,
     pub auth: ImapAuth,
-    pub initially_checked: bool,
 }
 
 pub struct OAuth2 {
@@ -51,7 +50,6 @@ impl ImapConfig {
             domain_name: env::var(IMAP_DOMAIN_NAME_KEY).unwrap(),
             port: env::var(IMAP_PORT_KEY).unwrap().parse().unwrap(),
             auth: imap_auth,
-            initially_checked: false,
         }
     }
 }

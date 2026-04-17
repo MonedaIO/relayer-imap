@@ -103,45 +103,41 @@ impl ImapClient {
     }
 
     pub async fn retrieve_new_emails(&mut self) -> Result<Vec<Vec<Fetch>>> {
-        if !self.config.initially_checked {
-            self.config.initially_checked = true;
-            let result =
-                tokio::time::timeout(Duration::from_secs(10), self.get_unseen_emails()).await;
-            if let Ok(Ok(result)) = result {
-                return Ok(result);
+        let result = tokio::time::timeout(
+            Duration::from_secs(30),
+            self.get_unseen_emails(),
+        )
+        .await;
+
+        match result {
+            Ok(Ok(emails)) => Ok(emails),
+            Ok(Err(e)) => {
+                error!(LOG, "IMAP error: {}, reconnecting...", e);
+                self.reconnect().await?;
+                Err(e)
+            }
+            Err(_) => {
+                error!(LOG, "IMAP operation timed out, reconnecting...");
+                self.reconnect().await?;
+                Err(anyhow!("IMAP operation timed out"))
             }
         }
-
-        trace!(LOG, "Reconnecting...");
-        self.reconnect().await?;
-        trace!(LOG, "Reconnected!");
-
-        Ok(self.get_unseen_emails().await?)
     }
 
     async fn get_unseen_emails(&mut self) -> Result<Vec<Vec<Fetch>>> {
         trace!(LOG, "Getting unseen emails...");
-        loop {
-            match self.session.uid_search("UNSEEN").await {
-                Ok(uids) => {
-                    let mut results = vec![];
-                    for uid in uids {
-                        let res = self
-                            .session
-                            .uid_fetch(uid.to_string(), "(BODY[] ENVELOPE)")
-                            .await?;
-                        let res = res.try_collect::<Vec<_>>().await?;
-                        results.push(res);
-                    }
-                    trace!(LOG, "Got unseen emails: {:?}!", results);
-                    return Ok(results);
-                }
-                Err(_e) => {
-                    error!(LOG, "Connection reset, reconnecting...");
-                    self.reconnect().await?;
-                }
-            }
+        let uids = self.session.uid_search("UNSEEN").await?;
+        let mut results = vec![];
+        for uid in uids {
+            let res = self
+                .session
+                .uid_fetch(uid.to_string(), "(BODY[] ENVELOPE)")
+                .await?;
+            let res = res.try_collect::<Vec<_>>().await?;
+            results.push(res);
         }
+        trace!(LOG, "Got unseen emails: {:?}!", results);
+        Ok(results)
     }
 
     pub async fn reconnect(&mut self) -> Result<()> {
@@ -157,7 +153,7 @@ impl ImapClient {
                 Err(e) => {
                     error!(LOG, "Error during reconnection: {:?}", e);
                     retry_count += 1;
-                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                 }
             }
         }
