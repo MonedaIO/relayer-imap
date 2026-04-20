@@ -126,6 +126,10 @@ impl ImapClient {
 
     async fn get_unseen_emails(&mut self) -> Result<Vec<Vec<Fetch>>> {
         trace!(LOG, "Getting unseen emails...");
+        // Re-SELECT INBOX to refresh the server's mailbox view. Without this,
+        // messages that arrived after the initial SELECT aren't surfaced by
+        // SEARCH on a long-lived session.
+        self.session.select("INBOX").await?;
         let uids = self.session.uid_search("UNSEEN").await?;
         let mut results = vec![];
         for uid in uids {
