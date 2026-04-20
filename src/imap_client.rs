@@ -1,6 +1,6 @@
 use crate::*;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use async_imap::{types::Fetch, Session};
@@ -23,9 +23,12 @@ impl async_imap::Authenticator for &OAuth2 {
     }
 }
 
+const SESSION_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+
 pub struct ImapClient {
     session: Session<TlsStream<TcpStream>>,
     config: ImapConfig,
+    last_connected_at: Instant,
 }
 
 impl ImapClient {
@@ -99,10 +102,22 @@ impl ImapClient {
 
         trace!(LOG, "ImapClient connected succesfully!");
 
-        Ok(Self { session, config })
+        Ok(Self {
+            session,
+            config,
+            last_connected_at: Instant::now(),
+        })
     }
 
     pub async fn retrieve_new_emails(&mut self) -> Result<Vec<Vec<Fetch>>> {
+        // Long-lived IMAP sessions can go stale on some servers (notably Gmail)
+        // in a way that SEARCH stops surfacing newly arrived messages. Force a
+        // fresh session periodically to sidestep this.
+        if self.last_connected_at.elapsed() >= SESSION_REFRESH_INTERVAL {
+            trace!(LOG, "Refreshing IMAP session...");
+            self.reconnect().await?;
+        }
+
         let result = tokio::time::timeout(
             Duration::from_secs(30),
             self.get_unseen_emails(),
@@ -126,10 +141,6 @@ impl ImapClient {
 
     async fn get_unseen_emails(&mut self) -> Result<Vec<Vec<Fetch>>> {
         trace!(LOG, "Getting unseen emails...");
-        // Re-SELECT INBOX to refresh the server's mailbox view. Without this,
-        // messages that arrived after the initial SELECT aren't surfaced by
-        // SEARCH on a long-lived session.
-        self.session.select("INBOX").await?;
         let uids = self.session.uid_search("UNSEEN").await?;
         let mut results = vec![];
         for uid in uids {
@@ -152,6 +163,7 @@ impl ImapClient {
             match ImapClient::new(self.config.clone()).await {
                 Ok(new_client) => {
                     self.session = new_client.session;
+                    self.last_connected_at = new_client.last_connected_at;
                     return Ok(());
                 }
                 Err(e) => {
