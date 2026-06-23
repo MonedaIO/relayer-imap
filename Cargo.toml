@@ -22,5 +22,5 @@ webbrowser = "0.8.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.68"
 slog = { version = "2.7.0", features = ["max_level_trace", "release_max_level_info"] }
-relayer-utils = { git = "https://github.com/zkemail/relayer-utils" }
+relayer-utils = { git = "https://github.com/MonedaIO/relayer-utils", rev = "f46dac9cf26e543212b9f590a25a2adbef80394a" }
 reqwest = "0.12.4"
